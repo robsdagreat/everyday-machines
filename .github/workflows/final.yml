@@ -1,0 +1,63 @@
+# Final render + private YouTube draft. Started by hand from the Actions tab (or the GitHub mobile app).
+#
+# Runs on your own free machine registered as a self-hosted runner (label "render"):
+# self-hosted runners use no GitHub minutes and have no 6-hour job limit, which a
+# 1080p Cycles render on CPU needs. See deploy/setup-runner.sh.
+#
+# Upload only happens when video.toml says status = "ready" AND you tick "upload". The upload is
+# always PRIVATE: watch it in YouTube Studio and publish from there. That click stays human.
+
+name: final
+
+on:
+  workflow_dispatch:
+    inputs:
+      video:
+        description: "Video id (folder name in videos/)"
+        required: true
+      profile:
+        description: "final (1080p) or draft (720p, ~4x faster)"
+        default: final
+      upload:
+        description: "Upload as a PRIVATE draft to YouTube (needs status = ready)"
+        type: boolean
+        default: false
+
+concurrency:
+  group: final-${{ inputs.video }}
+
+jobs:
+  final:
+    runs-on: [self-hosted, render]
+    timeout-minutes: 4320
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          clean: false   # keep build/ between runs so unchanged shots stay cached
+
+      - name: Build forge
+        run: cargo build --release --locked
+
+      - name: Plan
+        run: ./target/release/forge plan "${{ inputs.video }}" -p "${{ inputs.profile }}" | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Render and assemble
+        run: ./target/release/forge build "${{ inputs.video }}" -p "${{ inputs.profile }}"
+
+      - name: Upload preview files
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.video }}-${{ inputs.profile }}-extras
+          retention-days: 7
+          path: |
+            build/${{ inputs.video }}/${{ inputs.profile }}/${{ inputs.video }}.srt
+            build/${{ inputs.video }}/${{ inputs.profile }}/thumbnail.jpg
+            build/${{ inputs.video }}/${{ inputs.profile }}/metadata.json
+
+      - name: Upload to YouTube (private draft)
+        if: inputs.upload
+        env:
+          YT_CLIENT_ID: ${{ secrets.YT_CLIENT_ID }}
+          YT_CLIENT_SECRET: ${{ secrets.YT_CLIENT_SECRET }}
+          YT_REFRESH_TOKEN: ${{ secrets.YT_REFRESH_TOKEN }}
+        run: ./target/release/forge upload "${{ inputs.video }}" -p "${{ inputs.profile }}" | tee -a "$GITHUB_STEP_SUMMARY"

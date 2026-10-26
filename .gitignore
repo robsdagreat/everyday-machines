@@ -1,0 +1,5 @@
+/target
+/build
+/.secrets
+__pycache__/
+*.blend1

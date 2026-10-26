@@ -1,0 +1,88 @@
+# Animatic: flat-shaded preview of any video whose files change, on GitHub's free runners.
+# Typical cost: ~15-25 runner minutes for a 2-minute video (private repos get 2,000 free min/month).
+# Unchanged shots are restored from cache and not re-rendered.
+
+name: animatic
+
+on:
+  push:
+    branches: [main]
+    paths: ["videos/**", "blender/**", "forge.toml"]
+  workflow_dispatch:
+    inputs:
+      video:
+        description: "Video id (folder name in videos/)"
+        required: true
+      profile:
+        description: "Profile (animatic is the cheap one)"
+        default: animatic
+
+concurrency:
+  group: animatic-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  pick:
+    runs-on: ubuntu-24.04
+    outputs:
+      videos: ${{ steps.pick.outputs.videos }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - id: pick
+        name: Which videos changed
+        shell: bash
+        run: |
+          if [ -n "${{ inputs.video }}" ]; then
+            ids="${{ inputs.video }}"
+          elif git diff --name-only HEAD^ HEAD | grep -qE '^(blender/|forge\.toml$)'; then
+            # Toolkit or settings changed: rebuild every video that is still a draft.
+            ids=$(for d in videos/*/; do id=$(basename "$d"); if grep -q 'status *= *"draft"' "$d/video.toml"; then echo "$id"; fi; done)
+          else
+            ids=$(git diff --name-only HEAD^ HEAD | { grep '^videos/' || true; } | cut -d/ -f2 | sort -u)
+          fi
+          ids=$(for id in $ids; do if [ -f "videos/$id/video.toml" ]; then echo "$id"; fi; done)
+          echo "videos=$(printf '%s\n' $ids | jq -R . | jq -sc 'map(select(length>0))')" >> "$GITHUB_OUTPUT"
+          echo "building: ${ids:-nothing}"
+
+  render:
+    needs: pick
+    if: needs.pick.outputs.videos != '[]'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 300
+    strategy:
+      fail-fast: false
+      matrix:
+        video: ${{ fromJSON(needs.pick.outputs.videos) }}
+    env:
+      PROFILE: ${{ inputs.profile || 'animatic' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-forge
+
+      - name: Restore frame cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            build/${{ matrix.video }}/audio
+            build/${{ matrix.video }}/${{ env.PROFILE }}/frames
+          key: frames-${{ matrix.video }}-${{ env.PROFILE }}-${{ github.sha }}
+          restore-keys: frames-${{ matrix.video }}-${{ env.PROFILE }}-
+
+      - name: Plan
+        run: forge plan "${{ matrix.video }}" -p "$PROFILE" | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Build
+        run: forge build "${{ matrix.video }}" -p "$PROFILE"
+
+      - name: Upload preview
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.video }}-${{ env.PROFILE }}
+          retention-days: 7
+          path: |
+            build/${{ matrix.video }}/${{ env.PROFILE }}/${{ matrix.video }}.mp4
+            build/${{ matrix.video }}/${{ env.PROFILE }}/${{ matrix.video }}.srt
+            build/${{ matrix.video }}/${{ env.PROFILE }}/thumbnail.jpg
+            build/${{ matrix.video }}/${{ env.PROFILE }}/metadata.json

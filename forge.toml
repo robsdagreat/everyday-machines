@@ -1,0 +1,58 @@
+# Everyday Machines pipeline settings.
+
+[render]
+# Command prefix that runs a Python script inside Blender. Pick ONE:
+#   Blender install (recommended on your machine):
+#     blender = ["blender", "-b", "--factory-startup", "--python"]
+#   Blender as a Python module (pip install bpy==4.5.*, needs Python 3.11):
+#     blender = ["python3.11"]
+blender = ["blender", "-b", "--factory-startup", "--python"]
+jobs = 1          # parallel Blender processes; each already uses all CPU cores
+engine = "cycles" # cycles | eevee (fast on a GPU) | workbench (flat preview)
+gpu = false       # true = Cycles on CUDA/OptiX/HIP/Metal if present
+
+[profiles.animatic]  # flat-shaded, ~1 s/frame on a laptop CPU: check timing and motion first
+width = 640
+height = 360
+fps = 24
+quality = "preview"
+engine = "workbench"
+
+[profiles.preview]   # real lighting, low samples
+width = 640
+height = 360
+fps = 24
+quality = "preview"
+
+[profiles.draft]
+width = 1280
+height = 720
+fps = 30
+quality = "draft"
+
+[profiles.final]     # 1080p, 16 samples + denoise: looks almost identical to 160 at ~1/5 the time on CPU
+width = 1920
+height = 1080
+fps = 30
+quality = "lean"
+
+[profiles.max]       # 160 samples: only worth it on a GPU (gpu = true)
+width = 1920
+height = 1080
+fps = 30
+quality = "final"
+
+[voice]
+# A recording in videos/<id>/vo/<shot>.wav always wins. Otherwise piper TTS if set,
+# otherwise silence timed from the word count (so you can cut picture before recording).
+piper = ""            # e.g. "piper" or "/opt/piper/piper"
+piper_model = ""      # e.g. "assets/voices/en_US-ryan-high.onnx"
+words_per_minute = 150
+lead_in = 0.25        # seconds of picture before each shot's narration starts
+
+[music]
+file = ""             # e.g. "assets/music/bed.mp3" (royalty-free; YouTube Audio Library is safe)
+volume = 0.12         # ducked automatically under the voice
+
+[thumbnail]
+font = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"

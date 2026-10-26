@@ -1,0 +1,2 @@
+# Blender as a Python module (needs Python 3.11). Used by CI and the runner setup script.
+bpy==4.5.*

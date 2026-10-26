@@ -1,0 +1,42 @@
+name: Set up forge
+description: Blender (bpy module), ffmpeg, fonts and the forge binary on a GitHub-hosted Ubuntu runner.
+
+runs:
+  using: composite
+  steps:
+    - name: System packages
+      shell: bash
+      run: |
+        sudo apt-get update -qq
+        sudo apt-get install -y -qq ffmpeg fonts-dejavu-core \
+          libegl1 libgl1 libxkbcommon0 libsm6 libxi6 libxxf86vm1 libxfixes3 libxrender1
+
+    - name: Python 3.11 for Blender
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.11"
+        cache: pip
+        cache-dependency-path: requirements-render.txt
+
+    - name: Install bpy
+      shell: bash
+      run: |
+        python -m pip install -q -r requirements-render.txt
+        python -c "import bpy; print('Blender', bpy.app.version_string)"
+        echo "FORGE_BLENDER=$(which python)" >> "$GITHUB_ENV"
+
+    - name: Cache cargo
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.cargo/registry
+          ~/.cargo/git
+          target
+        key: cargo-${{ runner.os }}-${{ hashFiles('Cargo.lock', 'src/**') }}
+        restore-keys: cargo-${{ runner.os }}-
+
+    - name: Build forge
+      shell: bash
+      run: |
+        cargo build --release --locked
+        echo "$GITHUB_WORKSPACE/target/release" >> "$GITHUB_PATH"

@@ -1,0 +1,57 @@
+# Video 001. Narration is a FIRST DRAFT: rewrite it in your own words and voice,
+# check every claim against sources.md, then record vo/<shot>.wav for each shot.
+# Shot lengths follow the narration automatically.
+
+[video]
+title = "How a Pin Tumbler Lock Actually Works"
+description = """
+The lock on your front door is a tiny height-checking machine. We cut one in half to show how a handful of pins and springs decide whether a key is the right one.
+
+Everything is animated from the real mechanism: the pin heights in each shot are computed from the key's cuts."""
+tags = ["how it works", "pin tumbler lock", "locks", "keys", "mechanism", "engineering", "everyday machines", "3d animation"]
+category_id = "28"          # Science & Technology
+scene = "pin_tumbler"
+status = "draft"            # draft -> ready (script, facts, voice checked: upload allowed) -> published
+made_for_kids = false
+contains_synthetic_media = false
+
+[[shots]]
+id = "exterior"
+chapter = "The lock on your door"
+narration = """
+There's a good chance the lock on your front door works exactly like this one. It's called a pin tumbler lock. The design was refined in the 1860s, and it has barely changed since, because the idea inside it is so simple."""
+
+[[shots]]
+id = "reveal"
+chapter = "What's inside"
+narration = """
+Cut it in half, and there are only a few parts. The housing stays fixed to the door. Inside it sits the plug, the cylinder that actually turns. Running down through both are stacks of tiny pins: key pins at the bottom, driver pins on top, and springs pushing everything down."""
+
+[[shots]]
+id = "locked"
+chapter = "Why it stays locked"
+narration = """
+The plug and the housing meet along a boundary called the shear line. For the plug to turn, nothing can cross that line. But with no key inside, the springs push the driver pins down into the plug, so every one of them straddles the shear line and jams it in place."""
+
+[[shots]]
+id = "wrong_key"
+chapter = "The wrong key"
+narration = """
+Slide in the wrong key, and the pins ride up and down over its cuts. When it's all the way in, some pins are lifted too far and some not far enough. Even one pin out of place still bridges the shear line, and the plug won't budge."""
+
+[[shots]]
+id = "right_key"
+chapter = "The right key"
+narration = """
+The right key is cut so each key pin is lifted to exactly the right height. Now the gap between every key pin and its driver pin lands precisely on the shear line."""
+
+[[shots]]
+id = "turn"
+chapter = "Turning the plug"
+narration = """
+With nothing crossing the line, the plug is free to turn. The key pins ride along with it, the driver pins stay behind in the housing, and a cam at the back pulls the bolt. That's all a key really is: a list of heights, cut into metal."""
+
+[thumbnail]
+shot = "right_key"
+at = 1.0
+text = "Why your key works"
