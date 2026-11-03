@@ -52,6 +52,17 @@ Output lands in `build/<id>/<profile>/`: the video, captions (`.srt`), `thumbnai
 7. **Ready:** set `status = "ready"` in `video.toml` once script, facts and voice are checked. `forge upload <id>` uploads a **private** draft with captions and thumbnail.
 8. **Review and publish** in YouTube Studio: watch the private draft end to end, then publish. Set `status = "published"` afterwards.
 
+## Music
+
+The repo is public, so the music track is committed **encrypted** (`assets/music/bed.mp3.gpg`); the plain `bed.mp3` is gitignored.
+CI decrypts it with the `MUSIC_PASSPHRASE` repo secret. To change the track:
+
+```bash
+gpg --symmetric --cipher-algo AES256 -o assets/music/bed.mp3.gpg assets/music/bed.mp3   # use the same passphrase as the secret
+```
+
+A fresh clone needs the plain mp3 in `assets/music/` to build locally (or decrypt it with `gpg -d`).
+
 ## Profiles (`forge.toml`)
 
 | Profile | Engine | Size | Use |

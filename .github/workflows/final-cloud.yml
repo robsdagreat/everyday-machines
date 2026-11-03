@@ -43,6 +43,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup-forge
+        with:
+          music-passphrase: ${{ secrets.MUSIC_PASSPHRASE }}
       - id: shards
         run: |
           forge plan "${{ inputs.video }}" -p "${{ inputs.profile }}" | tee -a "$GITHUB_STEP_SUMMARY"
@@ -62,6 +64,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup-forge
+        with:
+          music-passphrase: ${{ secrets.MUSIC_PASSPHRASE }}
 
       - name: Render shard ${{ matrix.shard }} of ${{ strategy.job-total }}
         run: |
@@ -84,6 +88,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup-forge
+        with:
+          music-passphrase: ${{ secrets.MUSIC_PASSPHRASE }}
 
       - name: Collect every shard's frames
         uses: actions/download-artifact@v4

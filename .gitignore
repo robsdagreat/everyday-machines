@@ -4,3 +4,5 @@
 __pycache__/
 *.blend1
 node_modules/
+/assets/music/*
+!/assets/music/*.gpg

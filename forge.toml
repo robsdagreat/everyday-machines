@@ -51,7 +51,7 @@ words_per_minute = 150
 lead_in = 0.25        # seconds of picture before each shot's narration starts
 
 [music]
-file = ""             # e.g. "assets/music/bed.mp3" (royalty-free; YouTube Audio Library is safe)
+file = "assets/music/bed.mp3"   # not in git: only the encrypted bed.mp3.gpg is committed (see README)
 volume = 0.12         # ducked automatically under the voice
 
 [thumbnail]

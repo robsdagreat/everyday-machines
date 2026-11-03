@@ -1,6 +1,12 @@
 name: Set up forge
 description: Blender (bpy module), ffmpeg, fonts and the forge binary on a GitHub-hosted Ubuntu runner.
 
+inputs:
+  music-passphrase:
+    description: Passphrase for assets/music/*.gpg (the music is committed encrypted because the repo is public).
+    required: false
+    default: ""
+
 runs:
   using: composite
   steps:
@@ -24,6 +30,16 @@ runs:
         python -m pip install -q -r requirements-render.txt
         python -c "import bpy; print('Blender', bpy.app.version_string)"
         echo "FORGE_BLENDER=$(which python)" >> "$GITHUB_ENV"
+
+    - name: Decrypt music
+      shell: bash
+      env:
+        MUSIC_PASSPHRASE: ${{ inputs.music-passphrase }}
+      run: |
+        for f in assets/music/*.gpg; do
+          [ -n "$MUSIC_PASSPHRASE" ] || { echo "::warning::MUSIC_PASSPHRASE secret not set; music not decrypted"; break; }
+          gpg --batch --yes --pinentry-mode loopback --passphrase "$MUSIC_PASSPHRASE" -o "${f%.gpg}" -d "$f"
+        done
 
     - name: Cache cargo
       uses: actions/cache@v4
