@@ -26,6 +26,9 @@ on:
 concurrency:
   group: final-${{ inputs.video }}
 
+permissions:
+  contents: write   # needed to publish the release
+
 jobs:
   final:
     runs-on: [self-hosted, render]
@@ -44,15 +47,19 @@ jobs:
       - name: Render and assemble
         run: ./target/release/forge build "${{ inputs.video }}" -p "${{ inputs.profile }}"
 
-      - name: Upload preview files
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ inputs.video }}-${{ inputs.profile }}-extras
-          retention-days: 7
-          path: |
-            build/${{ inputs.video }}/${{ inputs.profile }}/${{ inputs.video }}.srt
-            build/${{ inputs.video }}/${{ inputs.profile }}/thumbnail.jpg
-            build/${{ inputs.video }}/${{ inputs.profile }}/metadata.json
+      - name: Publish release (permanent download link)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          out="build/${{ inputs.video }}/${{ inputs.profile }}"
+          tag="${{ inputs.video }}-${{ inputs.profile }}-${{ github.run_number }}"
+          gh release create "$tag" \
+            "$out/${{ inputs.video }}.mp4" "$out/${{ inputs.video }}.srt" \
+            "$out/thumbnail.jpg" "$out/metadata.json" \
+            --title "${{ inputs.video }} (${{ inputs.profile }})" \
+            --notes "Render of ${{ inputs.video }} at profile ${{ inputs.profile }}, commit ${{ github.sha }}. Download the .mp4 and upload it to YouTube." \
+            --prerelease
+          echo "Download: $(gh release view "$tag" --json url -q .url)" | tee -a "$GITHUB_STEP_SUMMARY"
 
       - name: Upload to YouTube (private draft)
         if: inputs.upload

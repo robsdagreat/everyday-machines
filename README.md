@@ -28,6 +28,16 @@ forge build 001-pin-tumbler-lock         # animatic (flat shading, fast)
 forge build 001-pin-tumbler-lock -p final
 ```
 
+With pnpm (builds `forge` on first use and rebuilds when `src/` changes):
+
+```bash
+pnpm install
+pnpm plan 001-pin-tumbler-lock           # same as forge plan
+pnpm animatic 001-pin-tumbler-lock       # forge build -p animatic
+pnpm final 001-pin-tumbler-lock          # forge build -p final
+pnpm forge render 001-pin-tumbler-lock --only <shot>   # any other subcommand
+```
+
 Output lands in `build/<id>/<profile>/`: the video, captions (`.srt`), `thumbnail.jpg`, `metadata.json` (with chapters), and per-shot frames and logs.
 
 ## Making a video

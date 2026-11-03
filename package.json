@@ -1,0 +1,28 @@
+{
+  "name": "everyday-machines",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Everyday Machines production pipeline: spec -> voice -> Blender render -> ffmpeg assembly -> YouTube draft",
+  "license": "MIT",
+  "type": "module",
+  "packageManager": "pnpm@10.33.0",
+  "engines": {
+    "node": ">=20"
+  },
+  "bin": {
+    "forge": "scripts/forge.mjs"
+  },
+  "scripts": {
+    "build": "cargo build --release --locked",
+    "check": "cargo check --locked",
+    "forge": "node scripts/forge.mjs",
+    "plan": "node scripts/forge.mjs plan",
+    "voice": "node scripts/forge.mjs voice",
+    "render": "node scripts/forge.mjs render",
+    "animatic": "node scripts/forge.mjs build -p animatic",
+    "final": "node scripts/forge.mjs build -p final",
+    "new": "node scripts/forge.mjs new",
+    "auth": "node scripts/forge.mjs auth",
+    "upload": "node scripts/forge.mjs upload"
+  }
+}
