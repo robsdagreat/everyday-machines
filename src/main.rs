@@ -43,12 +43,22 @@ enum Cmd {
         #[arg(short, long, default_value = "animatic")] profile: String,
         #[arg(long)] only: Option<String>,
         #[arg(long)] force: bool,
+        /// Render only slice INDEX/COUNT of the video's frames (e.g. 2/8), to spread a render over many machines.
+        #[arg(long)] shard: Option<render::Shard>,
+    },
+    /// Print the shard indexes (JSON array) needed to keep each machine under --frames-per-shard frames.
+    Shards {
+        video: String,
+        #[arg(short, long, default_value = "final")] profile: String,
+        #[arg(long, default_value_t = 500)] frames_per_shard: u32,
     },
     /// Full pipeline: voice, render, clips, master, captions, thumbnail, metadata.
     Build {
         video: String,
         #[arg(short, long, default_value = "animatic")] profile: String,
         #[arg(long)] force: bool,
+        /// Don't render: assemble from frames already in build/ (merged shards), failing if any are missing.
+        #[arg(long)] assemble_only: bool,
     },
     /// Scaffold videos/<video>/ for a scene.
     New { video: String, #[arg(long)] scene: String, #[arg(long)] title: Option<String> },
@@ -82,18 +92,26 @@ fn run(cli: Cli) -> Result<()> {
                     }
                     Ok(())
                 }
-                Cmd::Render { video, profile, only, force } => {
+                Cmd::Shards { video, profile, frames_per_shard } => {
+                    let v = p.load_video(&video)?;
+                    let prof = p.profile(&profile)?;
+                    let timing = voice::prepare(&p, &video, &v, prof.fps)?;
+                    let n = render::shard_count(&timing, frames_per_shard);
+                    println!("{}", serde_json::to_string(&(0..n).collect::<Vec<_>>())?);
+                    Ok(())
+                }
+                Cmd::Render { video, profile, only, force, shard } => {
                     let v = p.load_video(&video)?;
                     let prof = p.profile(&profile)?;
                     let timing = voice::prepare(&p, &video, &v, prof.fps)?;
                     let frames = p.build_dir(&video, &profile).join("frames");
-                    let jobs = render::plan(&p, &v, &prof, &timing, &frames, only.as_deref())?;
+                    let jobs = render::plan(&p, &v, &prof, &timing, &frames, only.as_deref(), shard)?;
                     if jobs.is_empty() {
                         bail!("no shot named {:?}", only);
                     }
                     render::render_all(&p, jobs, force)
                 }
-                Cmd::Build { video, profile, force } => build(&p, &video, &profile, force),
+                Cmd::Build { video, profile, force, assemble_only } => build(&p, &video, &profile, force, assemble_only),
                 Cmd::Upload { video, profile } => upload(&p, &video, &profile),
                 Cmd::New { .. } | Cmd::Auth => unreachable!(),
             }
@@ -106,7 +124,7 @@ fn plan(p: &Project, id: &str, profile: &str) -> Result<()> {
     let prof = p.profile(profile)?;
     let timing = voice::prepare(p, id, &v, prof.fps)?;
     let frames = p.build_dir(id, profile).join("frames");
-    let jobs = render::plan(p, &v, &prof, &timing, &frames, None)?;
+    let jobs = render::plan(p, &v, &prof, &timing, &frames, None, None)?;
     println!("{}  [{}]  scene={}  {}x{}@{}", v.video.title, v.video.status, v.video.scene, prof.width, prof.height, prof.fps);
     println!("{:<14} {:>7} {:>7} {:>6}  {:<9} {}", "shot", "start", "length", "frames", "voice", "render");
     for (t, j) in timing.iter().zip(&jobs) {
@@ -121,7 +139,7 @@ fn plan(p: &Project, id: &str, profile: &str) -> Result<()> {
     Ok(())
 }
 
-fn build(p: &Project, id: &str, profile: &str, force: bool) -> Result<()> {
+fn build(p: &Project, id: &str, profile: &str, force: bool, assemble_only: bool) -> Result<()> {
     let t0 = Instant::now();
     let v = p.load_video(id)?;
     let prof = p.profile(profile)?;
@@ -133,8 +151,15 @@ fn build(p: &Project, id: &str, profile: &str, force: bool) -> Result<()> {
     voice::save_timing(&dir.join("timing.json"), &timing)?;
 
     let frames = dir.join("frames");
-    let jobs = render::plan(p, &v, &prof, &timing, &frames, None)?;
-    render::render_all(p, jobs, force)?;
+    let jobs = render::plan(p, &v, &prof, &timing, &frames, None, None)?;
+    if assemble_only {
+        let missing: Vec<&str> = jobs.iter().filter(|j| !render::is_current(j)).map(|j| j.shot.as_str()).collect();
+        if !missing.is_empty() {
+            bail!("frames missing or stale for: {} (a shard failed or was not merged)", missing.join(", "));
+        }
+    } else {
+        render::render_all(p, jobs, force)?;
+    }
 
     println!("[assemble] encoding clips and mastering audio");
     let clips = assemble::clips(p, id, &prof, &timing, &frames, &dir.join("clips"))?;

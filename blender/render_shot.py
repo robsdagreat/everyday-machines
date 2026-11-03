@@ -32,6 +32,8 @@ def parse():
     p.add_argument("--engine", choices=["cycles", "eevee", "workbench"], default="cycles")
     p.add_argument("--gpu", action="store_true")
     p.add_argument("--out", required=True, help="output directory for frames")
+    p.add_argument("--start", type=int, help="first frame to render (default 1); for splitting a shot across machines")
+    p.add_argument("--end", type=int, help="last frame to render (default: all frames)")
     p.add_argument("--still", type=int, help="render only this frame to <out>/still.png")
     p.add_argument("--params", default="{}", help="JSON passed to scene.build()")
     p.add_argument("--save-blend", action="store_true", help="also write shot.blend for inspection")
@@ -66,6 +68,8 @@ def main():
         scene.render.filepath = os.path.join(a.out, "still.png")
         bpy.ops.render.render(write_still=True)
     else:
+        scene.frame_start = a.start or 1
+        scene.frame_end = min(a.end or a.frames, a.frames)
         scene.render.filepath = os.path.join(a.out, "f_")
         bpy.ops.render.render(animation=True)
     print(f"FORGE_DONE shot={a.shot} frames={a.frames} seconds={time.time() - t0:.1f}", flush=True)

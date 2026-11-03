@@ -1,0 +1,118 @@
+# Final render entirely on GitHub-hosted runners: no machine of yours involved.
+#
+# One 1080p Cycles render is far longer than GitHub's 6-hour job limit, so the frames are split
+# into shards (default 500 frames each), rendered in parallel jobs, then merged and encoded by
+# one last job that publishes the mp4 as a GitHub Release.
+#
+# Cost: private repos get 2,000 free minutes/month on 2-core runners; public repos are unlimited
+# (4-core runners). Artifact storage is the other limit: private repos get 500 MB, so large
+# renders only fit once the repo is public. Use profile=draft (720p) while private.
+#
+# Upload only happens when video.toml says status = "ready" AND you tick "upload" (always PRIVATE).
+
+name: final-cloud
+
+on:
+  workflow_dispatch:
+    inputs:
+      video:
+        description: "Video id (folder name in videos/)"
+        required: true
+      profile:
+        description: "final (1080p), draft (720p) or animatic"
+        default: final
+      frames_per_shard:
+        description: "Frames per parallel job (lower = more jobs, shorter each; keep each under ~5 h)"
+        default: "500"
+      upload:
+        description: "Upload as a PRIVATE draft to YouTube (needs status = ready)"
+        type: boolean
+        default: false
+
+concurrency:
+  group: final-cloud-${{ inputs.video }}-${{ inputs.profile }}
+
+permissions:
+  contents: write   # publish the release
+
+jobs:
+  plan:
+    runs-on: ubuntu-24.04
+    outputs:
+      shards: ${{ steps.shards.outputs.shards }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-forge
+      - id: shards
+        run: |
+          forge plan "${{ inputs.video }}" -p "${{ inputs.profile }}" | tee -a "$GITHUB_STEP_SUMMARY"
+          shards=$(forge shards "${{ inputs.video }}" -p "${{ inputs.profile }}" --frames-per-shard "${{ inputs.frames_per_shard }}")
+          echo "shards=$shards" >> "$GITHUB_OUTPUT"
+          echo "shards: $shards" | tee -a "$GITHUB_STEP_SUMMARY"
+
+  render:
+    needs: plan
+    runs-on: ubuntu-24.04
+    timeout-minutes: 350
+    strategy:
+      fail-fast: true
+      max-parallel: 20   # GitHub's concurrent-job limit on the free plan
+      matrix:
+        shard: ${{ fromJSON(needs.plan.outputs.shards) }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-forge
+
+      - name: Render shard ${{ matrix.shard }} of ${{ strategy.job-total }}
+        run: |
+          forge render "${{ inputs.video }}" -p "${{ inputs.profile }}" \
+            --shard "${{ matrix.shard }}/${{ strategy.job-total }}"
+
+      - name: Keep frames for the merge job
+        uses: actions/upload-artifact@v4
+        with:
+          name: frames-${{ matrix.shard }}
+          retention-days: 1
+          compression-level: 0   # PNGs are already compressed
+          include-hidden-files: true   # the .stamp files that mark each shot as current
+          path: build/${{ inputs.video }}/${{ inputs.profile }}/frames
+
+  assemble:
+    needs: render
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-forge
+
+      - name: Collect every shard's frames
+        uses: actions/download-artifact@v4
+        with:
+          pattern: frames-*
+          merge-multiple: true
+          path: build/${{ inputs.video }}/${{ inputs.profile }}/frames
+
+      - name: Assemble video, captions, thumbnail
+        run: forge build "${{ inputs.video }}" -p "${{ inputs.profile }}" --assemble-only
+
+      - name: Publish release (permanent download link)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          out="build/${{ inputs.video }}/${{ inputs.profile }}"
+          tag="${{ inputs.video }}-${{ inputs.profile }}-${{ github.run_number }}"
+          files=("$out/${{ inputs.video }}.mp4" "$out/${{ inputs.video }}.srt" "$out/metadata.json")
+          [ -f "$out/thumbnail.jpg" ] && files+=("$out/thumbnail.jpg")
+          gh release create "$tag" "${files[@]}" \
+            --title "${{ inputs.video }} (${{ inputs.profile }})" \
+            --notes "Render of ${{ inputs.video }} at profile ${{ inputs.profile }}, commit ${{ github.sha }}. Download the .mp4 and upload it to YouTube." \
+            --prerelease
+          echo "Download: $(gh release view "$tag" --json url -q .url)" | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload to YouTube (private draft)
+        if: inputs.upload
+        env:
+          YT_CLIENT_ID: ${{ secrets.YT_CLIENT_ID }}
+          YT_CLIENT_SECRET: ${{ secrets.YT_CLIENT_SECRET }}
+          YT_REFRESH_TOKEN: ${{ secrets.YT_REFRESH_TOKEN }}
+        run: forge upload "${{ inputs.video }}" -p "${{ inputs.profile }}" | tee -a "$GITHUB_STEP_SUMMARY"

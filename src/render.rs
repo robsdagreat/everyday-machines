@@ -19,6 +19,8 @@ pub struct Job {
     pub out: PathBuf,
     pub frames: u32,
     pub key: String,
+    /// Frames this job renders (1-based, inclusive). A whole shot unless the build is sharded.
+    pub range: (u32, u32),
 }
 
 fn toolkit_hash(p: &Project, scene: &str) -> Result<u64> {
@@ -62,26 +64,73 @@ fn base_args(p: &Project, v: &Video, prof: &Profile) -> Result<Vec<String>> {
     Ok(a)
 }
 
-pub fn plan(p: &Project, v: &Video, prof: &Profile, timing: &[ShotTiming], frames_root: &Path, only: Option<&str>) -> Result<Vec<Job>> {
+/// Which slice of the whole video's frames one machine renders: `index` of `count`, 0-based.
+#[derive(Debug, Clone, Copy)]
+pub struct Shard {
+    pub index: u32,
+    pub count: u32,
+}
+
+impl std::str::FromStr for Shard {
+    type Err = String;
+    fn from_str(s: &str) -> Result<Self, String> {
+        let (i, n) = s.split_once('/').ok_or("expected INDEX/COUNT, e.g. 0/8")?;
+        let (index, count): (u32, u32) = (i.parse().map_err(|_| "bad shard index")?, n.parse().map_err(|_| "bad shard count")?);
+        if count == 0 || index >= count {
+            return Err(format!("shard index must be below the count (got {index}/{count})"));
+        }
+        Ok(Shard { index, count })
+    }
+}
+
+/// `count` is chosen so no shard exceeds `frames_per_shard` frames.
+pub fn shard_count(timing: &[ShotTiming], frames_per_shard: u32) -> u32 {
+    let total: u32 = timing.iter().map(|t| t.frames).sum();
+    total.div_ceil(frames_per_shard.max(1)).max(1)
+}
+
+pub fn plan(p: &Project, v: &Video, prof: &Profile, timing: &[ShotTiming], frames_root: &Path, only: Option<&str>, shard: Option<Shard>) -> Result<Vec<Job>> {
     let tk = toolkit_hash(p, &v.video.scene)?;
     let base = base_args(p, v, prof)?;
+    let total: u32 = timing.iter().map(|t| t.frames).sum();
+    // The shard owns global frames [lo, hi), counted across all shots in order.
+    let (lo, hi) = match shard {
+        Some(s) => (
+            (total as u64 * s.index as u64 / s.count as u64) as u32,
+            (total as u64 * (s.index as u64 + 1) / s.count as u64) as u32,
+        ),
+        None => (0, total),
+    };
     let mut jobs = Vec::new();
+    let mut offset = 0;
     for t in timing {
+        let (first, last) = (offset + 1, offset + t.frames);
+        offset += t.frames;
         if only.map(|o| o != t.id).unwrap_or(false) {
             continue;
         }
+        let before = (offset - t.frames) as i64;
+        let (start, end) = (first.max(lo + 1) as i64 - before, last.min(hi) as i64 - before);
+        if start > end {
+            continue;
+        }
+        let (start, end) = (start as u32, end as u32);
         let out = frames_root.join(&t.id);
         let mut args = base.clone();
         args.extend(["--shot".into(), t.id.clone(), "--frames".into(), t.frames.to_string(), "--out".into(), out.display().to_string()]);
+        // The key ignores the range, so every shard of a shot stamps the same key and the pieces merge as one cached shot.
         let key = format!("{:016x}", util::fnv1a(args.join("\u{1f}").as_bytes(), tk));
-        jobs.push(Job { shot: t.id.clone(), args, out, frames: t.frames, key });
+        if (start, end) != (1, t.frames) {
+            args.extend(["--start".into(), start.to_string(), "--end".into(), end.to_string()]);
+        }
+        jobs.push(Job { shot: t.id.clone(), args, out, frames: t.frames, key, range: (start, end) });
     }
     Ok(jobs)
 }
 
 pub fn is_current(job: &Job) -> bool {
     let stamp_ok = fs::read_to_string(job.out.join(".stamp")).ok().as_deref() == Some(job.key.as_str());
-    stamp_ok && job.out.join(format!("f_{:04}.png", job.frames)).exists()
+    stamp_ok && (job.range.0..=job.range.1).all(|n| job.out.join(format!("f_{n:04}.png")).exists())
 }
 
 fn blender_cmd(p: &Project, args: &[String]) -> Result<Command> {
@@ -93,7 +142,7 @@ fn blender_cmd(p: &Project, args: &[String]) -> Result<Command> {
 }
 
 fn run_job(p: &Project, job: &Job) -> Result<()> {
-    if job.out.exists() {
+    if job.range == (1, job.frames) && job.out.exists() {
         for e in fs::read_dir(&job.out)? {
             let f = e?.path();
             if f.file_name().map(|n| n.to_string_lossy().starts_with("f_")).unwrap_or(false) {
@@ -109,7 +158,7 @@ fn run_job(p: &Project, job: &Job) -> Result<()> {
         .stderr(log)
         .status()
         .context("starting Blender (check render.blender in forge.toml)")?;
-    if !status.success() || !job.out.join(format!("f_{:04}.png", job.frames)).exists() {
+    if !status.success() || !job.out.join(format!("f_{:04}.png", job.range.1)).exists() {
         let text = fs::read_to_string(job.out.join("render.log")).unwrap_or_default();
         let tail: Vec<&str> = text.lines().rev().filter(|l| !l.starts_with("Fra:")).take(12).collect();
         bail!("shot '{}' failed:\n{}", job.shot, tail.into_iter().rev().collect::<Vec<_>>().join("\n"));
@@ -135,7 +184,7 @@ pub fn render_all(p: &Project, jobs: Vec<Job>, force: bool) -> Result<()> {
             s.spawn(move || loop {
                 let Some(job) = queue.lock().unwrap().pop() else { break };
                 let t0 = Instant::now();
-                println!("[render] {} ({} frames) ...", job.shot, job.frames);
+                println!("[render] {} (frames {}-{}) ...", job.shot, job.range.0, job.range.1);
                 match run_job(p, &job) {
                     Ok(()) => println!("[render] {} done in {:.0}s", job.shot, t0.elapsed().as_secs_f64()),
                     Err(e) => errors.lock().unwrap().push(format!("{e:#}")),
